@@ -130,24 +130,6 @@ def check_gmail():
         quit()
 
 
-def write_to_log(type, entry):
-    """ Writes entry to log.txt, and deletes old entries """
-    timestamp = datetime.now()
-    timestamp = timestamp.strftime("%d-%m-%Y %H:%M:%S")
-
-    with open("log.txt", "r") as f:
-        data = f.read().splitlines(True)
-        if len(data) >= LOG_SIZE:
-            with open("log.txt", "w") as f:
-                f.writelines(data[len(data)-LOG_SIZE+1:])
-    log_text = f"{type}\t{timestamp}\t{entry}\n"
-
-    with open("log.txt", "a") as f:
-        f.write(log_text)
-    
-    return
-
-
 def import_gmail(id):
     """ Downloads Gmail, and passes and any attachments to import_to_joplin() """
 
@@ -226,7 +208,27 @@ def import_gmail(id):
 
     return True
 
+"""
+WRITE LOG
+"""
+def write_to_log(type, entry):
+    """ Writes entry to log.txt, and deletes old entries """
+    timestamp = datetime.now()
+    timestamp = timestamp.strftime("%d-%m-%Y %H:%M:%S")
 
+    with open("log.txt", "r") as f:
+        data = f.read().splitlines(True)
+        if len(data) >= LOG_SIZE:
+            with open("log.txt", "w") as f:
+                f.writelines(data[len(data)-LOG_SIZE+1:])
+    log_text = f"{type}\t{timestamp}\t{entry}\n"
+
+    with open("log.txt", "a") as f:
+        f.write(log_text)
+    
+    return
+  
+   
 """
 RUN THE SCRIPT
 """
