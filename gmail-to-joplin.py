@@ -216,13 +216,17 @@ def write_to_log(type, entry):
     timestamp = datetime.now()
     timestamp = timestamp.strftime("%d-%m-%Y %H:%M:%S")
 
+    if not os.path.exists("log.txt"):
+        with open("log.txt", "x") as f:
+            pass
+
     with open("log.txt", "r") as f:
         data = f.read().splitlines(True)
         if len(data) >= LOG_SIZE:
             with open("log.txt", "w") as f:
                 f.writelines(data[len(data)-LOG_SIZE+1:])
+    
     log_text = f"{type}\t{timestamp}\t{entry}\n"
-
     with open("log.txt", "a") as f:
         f.write(log_text)
     
