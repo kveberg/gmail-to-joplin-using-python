@@ -47,16 +47,16 @@ def import_to_joplin(id, subject, text, attachments):
             os.makedirs(path)
         
         text = text.encode()
-        text_file = str(path + id + ".md")
+        text_file = f"{path}{id}.md"
         with open(text_file, "wb") as f:
             f.write(text)
 
         # Import text as new note in joplin_inbox. Create inbox if it does not exist.
-        path_to_text = os.getcwd() + "\\" + text_file
+        path_to_text = f"{os.getcwd()}\\{text_file}"
         result = subprocess.run(f"joplin import \"{path_to_text}\" {JOPLIN_INBOX}", shell=True, capture_output=True)
         
         if str(result.stdout.decode()) == f"Cannot find \"{JOPLIN_INBOX}\".\n":
-            logger.warning(f"Had to create target notebook \"{JOPLIN_INBOX}\". Restart of Joplin CLI may be required.")
+            logger.warning(f"Created target notebook \"{JOPLIN_INBOX}\". Restart of Joplin CLI may be required.")
             subprocess.run(f"joplin mkbook {JOPLIN_INBOX}", shell=True)
             subprocess.run(f"joplin import \"{path_to_text}\" {JOPLIN_INBOX}", shell=True)
         
@@ -71,7 +71,7 @@ def import_to_joplin(id, subject, text, attachments):
         return True
     
     except Exception as e:
-        logger.error(f"Something went wrong during import of {id} on {subject}. {e}.")
+        logger.error(f"Something went wrong during import of {id}: {e}.")
 
         return False
 
@@ -80,32 +80,38 @@ def import_to_joplin(id, subject, text, attachments):
 TALK TO GMAIL
 """
 
-# If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
-creds = None
-# The file token.json stores the user's access and refresh tokens, and is
-# created automatically when the authorization flow completes for the first
-# time.
-if os.path.exists('token.json'):
-    creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-# If there are no (valid) credentials available, let the user log in.
-if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    else:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json', SCOPES)
-        creds = flow.run_local_server(port=0)
-    # Save the credentials for the next run
-    with open('token.json', 'w') as token:
-        token.write(creds.to_json())
+def get_gmail_service():
+
+    # If modifying these scopes, delete the file token.json.
+    SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+    creds = None
+    # The file token.json stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first
+    # time.
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    service = build("gmail", "v1", credentials=creds)
+
+    return service
 
 
-def check_gmail():
+def check_gmail(service):
     """ Returns list of Gmail ids for any unread mail. """
 
     try:
-        service = build("gmail", "v1", credentials=creds)
+        #service = build("gmail", "v1", credentials=creds)
         result = service.users().messages().list(userId="me", q="is:unread").execute()
         
         # Print number of e-mails
@@ -225,7 +231,7 @@ logger = logging.getLogger("gmail-to-joplin")
 logger.setLevel(logging.INFO)
 
 if not DEBUG:
-    logger.info("Script is running ...")
+    logger.info("Running script ...")
  
 if DEBUG:
     JOPLIN_INBOX = "_debug"
@@ -248,12 +254,13 @@ for i in range(len(APPROVED_SENDERS)):
     APPROVED_SENDERS[i] = APPROVED_SENDERS[i].lower()
 
 # Check for new e-mails
-new_gmails = check_gmail()
+new_gmails = check_gmail(get_gmail_service())
 
-# Import e-mails, if any
+# Import e-mails
 counter = 0
 if new_gmails:
     for i in new_gmails:
+        print(f"Importing {i} of {len(new_gmails)} mail(s).")
         get_it = import_gmail(i)
         if get_it:
             counter +=1
@@ -262,6 +269,11 @@ if new_gmails:
 if new_gmails and not DEBUG:
     subprocess.run("joplin sync", shell=True)
 
-# Clean up and final log entry
+if new_gmails:
+    logger.info(f"Imported {counter} of {len(new_gmails)} unread mails.\n")
+elif not new_gmails:
+    logger.info(f"No new mail.")
+
+# Clean up
 shutil.rmtree(DOWNLOAD_PATH)
-logger.info(f"Script finished. Imported {counter} of {len(new_gmails)} unread mails.\n")
+logger.info(f"Script finished.\n")
