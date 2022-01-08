@@ -6,6 +6,8 @@ Retrieves unread e-mails (from, subject, main text and attachments) from a Gmail
  - Joplin CLI https://joplinapp.org/terminal/
  - Gmail account with API enabled https://console.cloud.google.com/home/
  - OAuth client credentials from said Gmail account stored as credentials.json the same folder as this script
+
+Note: When not running in debug-mode, the script looks for and deletes Joplin notebooks titled "_debug".
 """
 # IMPORTS
 import os.path
@@ -71,7 +73,6 @@ def import_to_joplin(id, subject, text, attachments):
                     logger.error("Joplin could not find {id} when appending attachments. SUBJECT: {subject}. TEXT: {text}. ATTACHMENTS: {attachments}")
                     
         # Use GMail subject to set title
-        print("Setting title ...")
         result = subprocess.run(f"joplin set \"{id}\" title \"{subject}\"", shell=True, capture_output=True)
         
         if str(result.stdout.decode()) == "Cannot find \"{id}\".\n":
@@ -117,14 +118,14 @@ def get_gmail_service():
 
 
 def check_gmail(service):
-    """ Returns list of Gmail ids for any unread mail. """
+    """ Returns list of Gmail ids for any unread mail """
 
     try:
         result = service.users().messages().list(userId="me", q="is:unread").execute()
         
         # Print number of e-mails
         n_new_mails = result["resultSizeEstimate"]
-        print(f"{n_new_mails} unread mail(s)!")
+        print(f"{n_new_mails} unread mail(s)")
         if n_new_mails == 0:
             return []
 
@@ -134,7 +135,7 @@ def check_gmail(service):
         for i in messages:
             ids.append(i["id"])
         
-        logger.info(f"Found {len(ids)} unread mail(s)")
+        logger.info(f"Found {len(ids)} unread mail(s).")
 
         # Return id's
         return ids
@@ -155,6 +156,8 @@ def import_gmail(service, id):
     if email.header.decode_header(subject)[0][1] != None:
         subject = email.header.decode_header(subject)[0][0]
         subject = subject.decode()
+    if subject == "":
+        subject = "EMAIL HAD NO SUBJECT"
 
     # Get sender
     sender = mime_msg["from"]
@@ -225,7 +228,6 @@ def import_gmail(service, id):
 """
 RUN THE SCRIPT
 """
-
 logging.basicConfig(
     handlers=[RotatingFileHandler("log.txt", maxBytes=LOG_SIZE, backupCount=0)],
     format="%(asctime)s - %(levelname)s -\t %(message)s", 
@@ -235,11 +237,11 @@ logger = logging.getLogger("gmail-to-joplin")
 logger.setLevel(logging.INFO)
 
 if not DEBUG:
-    logger.info("Running script ...")
- 
+    logger.info("Running script...")
+
 if DEBUG:
     JOPLIN_INBOX = "_debug"
-    logger.info("Running script in DEBUG MODE ...")
+    logger.info("Running script in DEBUG MODE...")
 
 # Check for credentials
 if not os.path.exists("credentials.json"):
@@ -267,11 +269,13 @@ errors = 0
 
 if new_gmails:
     for i in new_gmails:
-        print(f"Importing {counter+1} of {len(new_gmails)} mail(s).")
+        print(f"Importing {counter+1} of {len(new_gmails)}.")
         get_it = import_gmail(service, i)
         if get_it:
+            print("Successful")
             counter +=1
         if not get_it:
+            print("Failure")
             errors +=1
 
 # Tidy up after DEBUG
@@ -289,8 +293,8 @@ if new_gmails and not DEBUG:
 shutil.rmtree(DOWNLOAD_PATH)
 
 if new_gmails:
-    logger.info(f"Script finished. Imported {counter} of {len(new_gmails)} unread mails.\n")
+    logger.info(f"Script finished. Imported {counter} of {len(new_gmails)} unread mails\n")
 elif not new_gmails:
-    logger.info(f"Script finished. No new mail.\n")
+    logger.info(f"Script finished. No new mail\n")
 
-print("Finished.")
+print("Finished")
