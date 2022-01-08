@@ -54,19 +54,28 @@ def import_to_joplin(id, subject, text, attachments):
         # Import text as new note in joplin_inbox. Create inbox if it does not exist.
         path_to_text = f"{os.getcwd()}\\{text_file}"
         result = subprocess.run(f"joplin import \"{path_to_text}\" {JOPLIN_INBOX}", shell=True, capture_output=True)
-        
+
         if str(result.stdout.decode()) == f"Cannot find \"{JOPLIN_INBOX}\".\n":
-            logger.warning(f"Created target notebook \"{JOPLIN_INBOX}\". Restart of Joplin CLI may be required.")
             subprocess.run(f"joplin mkbook {JOPLIN_INBOX}", shell=True)
             subprocess.run(f"joplin import \"{path_to_text}\" {JOPLIN_INBOX}", shell=True)
-        
+            
+            print(f"Target notebook \"{JOPLIN_INBOX}\" created.")
+            logger.warning(f"Target notebook \"{JOPLIN_INBOX}\" created. Restart of Joplin CLI may be required.")
+
         # Append attachments using list of attachment paths
         if attachments:
             for i in attachments:
-                subprocess.run(f"joplin attach \"{id}\" \"{i}\"", shell=True)
-        
+                result = subprocess.run(f"joplin attach \"{id}\" \"{i}\"", shell=True, capture_output=True)
+                
+                if str(result.stdout.decode()) == "Cannot find \"{id}\".\n":
+                    logger.error("Joplin could not find {id} when appending attachments. SUBJECT: {subject}. TEXT: {text}. ATTACHMENTS: {attachments}")
+                    
         # Use GMail subject to set title
-        subprocess.run(f"joplin set \"{id}\" title \"{subject}\"", shell=True)
+        print("Setting title ...")
+        result = subprocess.run(f"joplin set \"{id}\" title \"{subject}\"", shell=True, capture_output=True)
+        
+        if str(result.stdout.decode()) == "Cannot find \"{id}\".\n":
+            logger.error("Joplin could not find {id} when setting title. SUBJECT: {subject}. TEXT: {text}. ATTACHMENTS: {attachments}")
 
         return True
     
@@ -88,18 +97,18 @@ def get_gmail_service():
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists("token.json"):
+        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+                "credentials.json", SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open('token.json', 'w') as token:
+        with open("token.json", "w") as token:
             token.write(creds.to_json())
 
     service = build("gmail", "v1", credentials=creds)
@@ -111,7 +120,6 @@ def check_gmail(service):
     """ Returns list of Gmail ids for any unread mail. """
 
     try:
-        #service = build("gmail", "v1", credentials=creds)
         result = service.users().messages().list(userId="me", q="is:unread").execute()
         
         # Print number of e-mails
@@ -135,16 +143,12 @@ def check_gmail(service):
         logger.error(f"Failed to retrieve Gmail. {e}")
         
 
-def import_gmail(id):
+def import_gmail(service, id):
     """ Downloads Gmail, and passes and any attachments to import_to_joplin() """
 
-    # Get GMail
-    service = build("gmail", "v1", credentials=creds)
+    # Get GMail and convert to MIME-object
     msg = service.users().messages().get(userId="me", id=str(id), format="raw").execute()
-
-    # Convert to MIME
-    msg_bytes = base64.urlsafe_b64decode(msg['raw'])
-    mime_msg = email.message_from_bytes(msg_bytes)
+    mime_msg = email.message_from_bytes(base64.urlsafe_b64decode(msg["raw"]))
 
     # Get subject
     subject = mime_msg["subject"]
@@ -172,13 +176,12 @@ def import_gmail(id):
         try:
             if part.get_content_type()=="text/plain":
                 text = part.get_payload(decode=True)
-                text = text.decode()
+                text = text.decode(str(part.get_content_charset()))
         
         except Exception as e:
+            print(f"DECODE ERROR: {e}")
             text_decode_error = f" # Decode-Error!\n\"{e}\".\n"
-            problem_text = part.get_payload(decode=True)
-            text = text_decode_error + problem_text.decode("utf-8", "replace")
-
+            text = text_decode_error + problem_text.decode(str(part.get_content_charset()), "replace")
             logger.error(f"Trouble decoding {id} from {sender} on {subject}. {e}")
 
     # Get attachments
@@ -222,6 +225,7 @@ def import_gmail(id):
 """
 RUN THE SCRIPT
 """
+
 logging.basicConfig(
     handlers=[RotatingFileHandler("log.txt", maxBytes=LOG_SIZE, backupCount=0)],
     format="%(asctime)s - %(levelname)s -\t %(message)s", 
@@ -235,11 +239,11 @@ if not DEBUG:
  
 if DEBUG:
     JOPLIN_INBOX = "_debug"
-    logger.info("Script is running in DEBUG MODE ...")
+    logger.info("Running script in DEBUG MODE ...")
 
 # Check for credentials
 if not os.path.exists("credentials.json"):
-    logger.Error("Could not find OATH file \"credentials.json\" in script path.")
+    logger.error("Could not find OATH file \"credentials.json\" in script path.")
     quit()
 
 # Prepare download path
@@ -254,26 +258,39 @@ for i in range(len(APPROVED_SENDERS)):
     APPROVED_SENDERS[i] = APPROVED_SENDERS[i].lower()
 
 # Check for new e-mails
-new_gmails = check_gmail(get_gmail_service())
+service = get_gmail_service()
+new_gmails = check_gmail(service)
 
 # Import e-mails
 counter = 0
+errors = 0
+
 if new_gmails:
     for i in new_gmails:
-        print(f"Importing {i} of {len(new_gmails)} mail(s).")
-        get_it = import_gmail(i)
+        print(f"Importing {counter+1} of {len(new_gmails)} mail(s).")
+        get_it = import_gmail(service, i)
         if get_it:
             counter +=1
+        if not get_it:
+            errors +=1
+
+# Tidy up after DEBUG
+if not DEBUG:
+    notes = subprocess.run(f"joplin ls /", shell=True, capture_output=True)
+    if "_debug" in notes.stdout.decode():
+        subprocess.run(f"joplin rmbook _debug -Confirm=$true", shell=True)
+        logger.info("Found and deleted \"_debug\" notebook.")
 
 # Joplin sync
 if new_gmails and not DEBUG:
     subprocess.run("joplin sync", shell=True)
 
-if new_gmails:
-    logger.info(f"Imported {counter} of {len(new_gmails)} unread mails.\n")
-elif not new_gmails:
-    logger.info(f"No new mail.")
-
-# Clean up
+# Tidy up downloads and log results
 shutil.rmtree(DOWNLOAD_PATH)
-logger.info(f"Script finished.\n")
+
+if new_gmails:
+    logger.info(f"Script finished. Imported {counter} of {len(new_gmails)} unread mails.\n")
+elif not new_gmails:
+    logger.info(f"Script finished. No new mail.\n")
+
+print("Finished.")
