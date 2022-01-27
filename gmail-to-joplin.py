@@ -26,7 +26,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # CONFIG:
-JOPLIN_INBOX = "_inbox"                              # Target Joplin notebook. Script creates it if it does not already exist
+JOPLIN_INBOX = "00 - inbox"                          # Target Joplin notebook. Script creates it if it does not already exist
 APPROVED_SENDERS = []                                # List of addresses you want to import mails from. Leave blank if you want everything
 LOG_SIZE = 5000                                      # Max size of log file in bytes
 DOWNLOAD_PATH = f"{os.getcwd()}\\gmtj_downloads"     # A download folder to temporarily hold e-mails and attachments
@@ -41,7 +41,7 @@ TALK TO JOPLIN
 
 def import_to_joplin(id, subject, text, attachments):
     """ Imports text and attachments to Joplin-notebook, with subject as title """
-    
+
     try: 
         # Store text in file using its unique id
         path = f"gmtj_downloads\\{id}\\"
@@ -77,7 +77,7 @@ def import_to_joplin(id, subject, text, attachments):
         
         if str(result.stdout.decode()) == "Cannot find \"{id}\".\n":
             logger.error("Joplin could not find {id} when setting title. SUBJECT: {subject}. TEXT: {text}. ATTACHMENTS: {attachments}")
-
+        print(f"Tried setting title to :{subject}")
         return True
     
     except Exception as e:
@@ -144,7 +144,7 @@ def check_gmail(service):
         logger.error(f"Failed to retrieve Gmail. {e}")
         
 
-def import_gmail(service, id):
+def gmail_to_joplin(service, id):
     """ Downloads Gmail, and passes and any attachments to import_to_joplin() """
 
     # Get GMail and convert to MIME-object
@@ -157,6 +157,8 @@ def import_gmail(service, id):
         subject = email.header.decode_header(subject)[0][0]
         subject = subject.decode()
     if subject == "":
+        subject = "EMAIL HAD NO SUBJECT"
+    if subject == str(id):
         subject = "EMAIL HAD NO SUBJECT"
 
     # Get sender
@@ -270,7 +272,7 @@ errors = 0
 if new_gmails:
     for i in new_gmails:
         print(f"Importing {counter+1} of {len(new_gmails)}.")
-        get_it = import_gmail(service, i)
+        get_it = gmail_to_joplin(service, i)
         if get_it:
             print("Successful")
             counter +=1
@@ -278,12 +280,12 @@ if new_gmails:
             print("Failure")
             errors +=1
 
-# Tidy up after DEBUG
-if not DEBUG:
-    notes = subprocess.run(f"joplin ls /", shell=True, capture_output=True)
-    if "_debug" in notes.stdout.decode():
-        subprocess.run(f"joplin rmbook _debug -Confirm=$true", shell=True)
-        logger.info("Found and deleted \"_debug\" notebook.")
+# # Tidy up after DEBUG -- This takes too long.
+# if not DEBUG:
+#     notes = subprocess.run(f"joplin ls /", shell=True, capture_output=True)
+#     if "_debug" in notes.stdout.decode():
+#         subprocess.run(f"joplin rmbook _debug -Confirm=$true", shell=True)
+#         logger.info("Found and deleted \"_debug\" notebook.")
 
 # Joplin sync
 if new_gmails and not DEBUG:
@@ -298,3 +300,5 @@ elif not new_gmails:
     logger.info(f"Script finished. No new mail\n")
 
 print("Finished")
+
+exit()
